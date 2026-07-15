@@ -1,0 +1,6 @@
+{
+  "_comment": "Пример датапака для стороннего мода. Положи этот файл в свой мод или datapack.",
+  "id":           "mymod:my_cannon",
+  "nbt_location": "mymod:structures/my_cannon.nbt",
+  "rotation":     "none"
+}

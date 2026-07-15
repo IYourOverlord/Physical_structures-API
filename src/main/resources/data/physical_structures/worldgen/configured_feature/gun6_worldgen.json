@@ -1,0 +1,9 @@
+{
+  "type": "physical_structures:physical_structure",
+  "config": {
+    "structure_id": "physical_structures:gun6",
+    "rotation": "none",
+    "snap_to_surface": true,
+    "assemble_delay_ticks": 5
+  }
+}
