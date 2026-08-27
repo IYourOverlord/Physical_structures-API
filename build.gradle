@@ -89,6 +89,12 @@ var generateModMetadata = tasks.register("generateModMetadata", ProcessResources
                              mod_authors            : mod_authors,
                              mod_description        : mod_description]
     inputs.properties replaceProperties
+    // Без этого Gradle читает/пишет шаблон в платформенной кодировке по умолчанию.
+    // На Windows это обычно НЕ UTF-8, из-за чего любые не-ASCII символы в
+    // src/main/templates/**/*.toml (например, кириллица в комментариях) превращаются
+    // в невалидные байты в собранном jar — NeoForge потом не может распарсить
+    // получившийся neoforge.mods.toml и весь мод помечается "not a valid mod file".
+    filteringCharset = "UTF-8"
     expand replaceProperties
     from "src/main/templates"
     into "build/generated/sources/modMetadata"

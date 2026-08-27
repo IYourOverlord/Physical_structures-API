@@ -37,10 +37,11 @@ structure, plus a set of events/hooks for integrating it into their own logic.
 8. [World generation (Worldgen Feature)](#8-world-generation-worldgen-feature)
 9. [Extension: custom structure sources (`StructureSourceProvider`)](#9-extension-custom-structure-sources-structuresourceprovider)
 10. [Compatibility with Create Aeronautics Toolgun (`excraft:`)](#10-compatibility-with-create-aeronautics-toolgun-excraft)
-11. [Practical usage scenarios](#11-practical-usage-scenarios)
-12. [FAQ / troubleshooting](#12-faq--troubleshooting)
-13. [Building from source](#13-building-from-source)
-14. [License](#14-license)
+11. [Compatibility with Sable Schematic API (`sable:`)](#11-compatibility-with-sable-schematic-api-sable)
+12. [Practical usage scenarios](#12-practical-usage-scenarios)
+13. [FAQ / troubleshooting](#13-faq--troubleshooting)
+14. [Building from source](#14-building-from-source)
+15. [License](#15-license)
 
 ---
 
@@ -92,10 +93,13 @@ move, rotate, and physically interact with the world like a ship or vehicle.
 - `sable` (`dev.ryanhcode.sable`) — provides sub-levels and structure physics
 - `cbc_autotarget` — required build dependency (used transitively)
 
-**Optional dependency** (detected at runtime; absence does not break loading):
+**Optional dependencies** (detected at runtime; absence does not break loading):
 
 - `create_aeronautics_toolgun` (Excraft Toolgun) — if installed, the mod automatically
   enables compatibility with the `.excraft` blueprint format (see [section 10](#10-compatibility-with-create-aeronautics-toolgun-excraft)).
+- `sable_schematic_api` (Sable Photomancy) — if installed, the mod automatically
+  enables compatibility with its `.nbt` blueprint format via the `sable:` namespace
+  (see [section 11](#11-compatibility-with-sable-schematic-api-sable)).
 
 The repository also shows that the build uses the following as `compileOnly` (meaning
 only for compilation — the actual jar files of these mods are needed at runtime if the
@@ -108,6 +112,9 @@ corresponding functionality is used): Sable, `simulated`, Create, Flywheel, Pond
 3. Put the `physical_structures` jar in `mods/`.
 4. (Optional) Install `create_aeronautics_toolgun` if you want to use
    `.excraft` blueprints through this mod.
+5. (Optional) Install `sable_schematic_api` if you want to place its `.nbt`
+   blueprints (saved via `/sablebp save`, `blueprint_tool`, or `camera`) through
+   this mod's own spawner block/item.
 
 ### Using it as a library (for another mod developer)
 
@@ -802,7 +809,59 @@ this is a limitation of the Toolgun itself, not the bridge. Ordinary `.excraft` 
 
 ---
 
-## 11. Practical usage scenarios
+## 11. Compatibility with Sable Schematic API (`sable:`)
+
+If the [`sable-schematic-api`](https://github.com/Rew1nd-dev/sable-schematic-api) mod
+(Sable Photomancy) is present in the modpack, `physical_structures` automatically
+registers `SableCompat` as a `StructureSourceProvider` for the `sable:` namespace.
+This allows `StructureSpawnerBlock` **and** `SpawnStructureItem` to use IDs of the form
+`sable:my_ship`, which point to files `<world>/sable_blueprints/*.nbt` — the same
+`.nbt` format produced by sable-schematic-api's `/sablebp save` command, its
+`blueprint_tool` item, and its `camera` item (all three write the same
+`NbtIo.writeCompressed(blueprint.save(), ...)` payload).
+
+Technically, the bridge delegates placement to sable-schematic-api's built-in command:
+
+```
+/sablebp load <name>
+```
+
+executed on behalf of the server `CommandSourceStack`, with its position set to the
+spawner's origin. Unlike the Toolgun integration in section 10, no player context is
+required in any case — `/sablebp load` only reads the position of the command source,
+not a player.
+
+**One-time setup for a blueprint captured on the client.** If you saved the structure
+with the `camera` item or `blueprint_tool`, the `.nbt` file is written to the client-side
+`Sable-Schematics` folder, not the server's world folder. Copy it once into
+`<world>/sable_blueprints/<name>.nbt` on the server — after that it is available under
+`sable:<name>` through physical_structures without touching sable-schematic-api's own
+tools (`camera`/`blueprint_tool`) again:
+
+```java
+// Give a spawner item bound to a Sable blueprint copied into <world>/sable_blueprints/my_ship.nbt
+ItemStack spawner = StructureSpawnerItem.forStructure(
+        ResourceLocation.fromNamespaceAndPath("sable", "my_ship"));
+player.getInventory().add(spawner);
+```
+
+or, for the hand-held placer item, register it the same way any other structure ID is
+registered (see [section 4.3](#43-runtime-registration-from-java) for the general
+pattern) and give a `SpawnStructureItem` bound to `sable:my_ship` — placement happens
+entirely through physical_structures's own item/block, `camera` and `blueprint_tool`
+are never opened during gameplay.
+
+> Why a command bridge and not a direct Java dependency: sable-schematic-api's README
+> states its public API (`dev.rew1nd.sableschematicapi.api.*`) is still evolving, and the
+> classes that actually decode/place a blueprint (`SableBlueprint`, `SableBlueprintPlacer`)
+> live outside that package. Compiling directly against them would silently break on a
+> `NoSuchMethodError` after a sable-schematic-api update. `/sablebp load` is a stable,
+> mod-declared command, so the bridge only depends on Brigadier/`CommandSourceStack` —
+> see the javadoc on `SablePlacementBridge` for the full reasoning.
+
+---
+
+## 12. Practical usage scenarios
 
 ### Scenario A: “Spawn a structure by command”
 
@@ -907,9 +966,25 @@ player.getInventory().add(blueprintItem);
 See [section 8](#8-world-generation-worldgen-feature) — a datapack with `configured_feature` +
 `placed_feature`, attached to the desired biomes through `biome_modifier`.
 
+### Scenario H: “Place a Sable blueprint saved by a player, using only this mod's tools”
+
+```java
+// The player used sable-schematic-api's camera in-game and you copied the resulting
+// .nbt to <world>/sable_blueprints/watchtower.nbt on the server.
+ResourceLocation id = ResourceLocation.fromNamespaceAndPath("sable", "watchtower");
+
+// Works from either entry point — both go through StructureSourceProviderRegistry first:
+StructureSpawnerBlock.placeAndTrigger(level, pos, id);
+// or hand the player a placer item:
+player.getInventory().add(new ItemStack(new SpawnStructureItem(new Item.Properties(), id)));
+```
+
+See [section 11](#11-compatibility-with-sable-schematic-api-sable) for the one-time
+file-copy step and why no sable-schematic-api tool needs to be touched afterward.
+
 ---
 
-## 12. FAQ / troubleshooting
+## 13. FAQ / troubleshooting
 
 **The structure does not spawn, `UNKNOWN_ID`.**
 Check that the ID is actually registered: `PhysicalStructures.isRegistered(id)`
@@ -942,9 +1017,20 @@ This is a limitation of the Toolgun itself: playerless placement of `CreatePhysi
 always throws `IOException`. Pass a real `ServerPlayer` if you have one —
 see [section 10](#10-compatibility-with-create-aeronautics-toolgun-excraft).
 
+**`sable:` structures fail with "Sable blueprint file not found".**
+The file must be in the server's `<world>/sable_blueprints/<name>.nbt`, not the
+client-side `Sable-Schematics` folder that `camera`/`blueprint_tool` write to. Copy the
+`.nbt` there once — see [section 11](#11-compatibility-with-sable-schematic-api-sable).
+
+**`sable:` structures fail even though the file exists.**
+The bridge only reports whether `/sablebp load` returned a non-zero Brigadier result;
+detailed diagnostics (invalid palette entries, failed block entities, etc.) are logged by
+sable-schematic-api itself under the `SableBridge`/`SableCompat` logger tags — check the
+server log for the underlying `BlueprintDiagnosticReport` summary.
+
 ---
 
-## 13. Building from source
+## 14. Building from source
 
 ```bash
 git clone https://github.com/IYourOverlord/Physical_structures-API.git
@@ -967,6 +1053,6 @@ must be manually placed in the `libs/` folder before building if they are not al
 
 ---
 
-## 14. License
+## 15. License
 
 See the [`LICENSE`](LICENSE) file in the repository root.

@@ -39,3 +39,14 @@ type = "required"
 versionRange = "[1,)"
 ordering = "NONE"
 side = "BOTH"
+
+# Optional integration: if sable_schematic_api is installed, physical_structures
+# can place its .nbt blueprints via the "sable" namespace (StructureSpawnerBlock /
+# SpawnStructureItem) - see compat/sable/SableCompat.java. ordering=AFTER guarantees
+# its /sablebp command is already registered by the time it might be needed.
+[[dependencies."${mod_id}"]]
+modId = "sable_schematic_api"
+type = "optional"
+versionRange = "[1,)"
+ordering = "AFTER"
+side = "BOTH"
